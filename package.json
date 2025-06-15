@@ -19,7 +19,25 @@
       "command": "dart-bean-generator.generate",
       "title": "Generate Dart Bean Class"
       }
-    ]
+    ],
+    "keybindings": [
+      {
+        "command": "dart-bean-generator.generate",
+        "key": "alt+j",
+        "when": "editorTextFocus"
+      }
+    ],
+    "configuration": {
+      "type": "object",
+      "title": "Dart Bean Generator",
+      "properties": {
+        "dart-bean-generator.jsonDirPath": {
+          "type": "string",
+          "default": "lib/generated/json",
+          "description": "Path for generated JSON files relative to the workspace root"
+        }
+      }
+    }
   },
   "scripts": {
     "vscode:prepublish": "npm run package",
