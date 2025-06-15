@@ -22,10 +22,13 @@ export function activate(context: vscode.ExtensionContext) {
 
     // Get the workspace root path
     const workspaceRoot = vscode.workspace.workspaceFolders[0].uri.fsPath
-    const libPath = path.join(workspaceRoot, "lib")
+    const config = vscode.workspace.getConfiguration('dart-bean-generator')
+    const jsonDirRelative = config.get<string>('jsonDirPath', path.join('lib', 'generated', 'json'))
+    const jsonDirPath = path.join(workspaceRoot, jsonDirRelative)
+    const entityPath = path.join(workspaceRoot, 'lib', 'entity')
 
-    // Send the workspace path to the webview
-    panel.webview.html = getWebviewContent(panel.webview, context.extensionUri, libPath)
+    // Send the workspace paths to the webview
+    panel.webview.html = getWebviewContent(panel.webview, context.extensionUri, entityPath, jsonDirPath)
 
     panel.webview.onDidReceiveMessage(
       async (message: any) => {
@@ -71,7 +74,7 @@ export function activate(context: vscode.ExtensionContext) {
 /**
  * Generate Dart class from JSON
  */
-async function generateDartClass(className: string[], jsonText: string, options: any): Promise<void> {
+async function generateDartClass(className: string, jsonText: string, options: any): Promise<void> {
   // Notify webview that generation has started
   if (panel && panel.webview) {
     panel.webview.postMessage({ command: "generationStarted" })
@@ -93,6 +96,9 @@ async function generateDartClass(className: string[], jsonText: string, options:
 
     const workspaceRoot = vscode.workspace.workspaceFolders[0].uri.fsPath
     const libDirPath = path.join(workspaceRoot, "lib")
+    const config = vscode.workspace.getConfiguration('dart-bean-generator')
+    const jsonDirRelative = config.get<string>('jsonDirPath', path.join('lib', 'generated', 'json'))
+    const jsonDirPath = path.join(workspaceRoot, jsonDirRelative)
 
     // Get package name from pubspec.yaml if possible
     let packageName = "app"
@@ -120,14 +126,7 @@ async function generateDartClass(className: string[], jsonText: string, options:
       await fs.promises.mkdir(entityDirPath, { recursive: true })
     }
 
-    // Check if generated directory exists, if not create it
-    const generatedDirPath = path.join(libDirPath, "generated")
-    if (!fs.existsSync(generatedDirPath)) {
-      await fs.promises.mkdir(generatedDirPath, { recursive: true })
-    }
-
-    // Check if json directory exists inside generated, if not create it
-    const jsonDirPath = path.join(generatedDirPath, "json")
+    // Ensure json directory exists
     if (!fs.existsSync(jsonDirPath)) {
       await fs.promises.mkdir(jsonDirPath, { recursive: true })
     }
@@ -140,7 +139,6 @@ async function generateDartClass(className: string[], jsonText: string, options:
 
     // Create json_convert_content.dart if it doesn't exist
     const jsonConvertPath = path.join(baseDirPath, "json_convert_content.dart");
-	await updateJsonConvertContent(className, packageName);
 
 /**
  * 批量更新 json_convert_content.dart，把 allClassNames 里的所有类
@@ -149,14 +147,14 @@ async function generateDartClass(className: string[], jsonText: string, options:
  * @param allClassNames  所有生成的类名，如 ["Test2", "Test2Address", "Test2Links"]
  * @param packageName    从 pubspec.yaml 解析到的包名，如 "my_app"
  */
- async function updateJsonConvertContent(allClassNames: string[], packageName: string): Promise<void> {
+async function updateJsonConvertContent(allClassNames: string[], packageName: string, jsonDirRelative: string): Promise<void> {
 	// 1) 无工作区则抛出异常
 	if (!vscode.workspace.workspaceFolders || vscode.workspace.workspaceFolders.length === 0) {
 	  throw new Error("No workspace open")
 	}
   
-	const workspaceRoot = vscode.workspace.workspaceFolders[0].uri.fsPath
-	const baseDirPath = path.join(workspaceRoot, "lib", "generated", "json", "base")
+        const workspaceRoot = vscode.workspace.workspaceFolders[0].uri.fsPath
+        const baseDirPath = path.join(workspaceRoot, jsonDirRelative, "base")
 	const jsonConvertPath = path.join(baseDirPath, "json_convert_content.dart")
   
 	// 2) 如果 json_convert_content.dart 不存在，先创建一个基础模板
@@ -400,11 +398,13 @@ async function generateDartClass(className: string[], jsonText: string, options:
   }
 
     // Generate Dart code with the correct import path
-    const dartCode = generator.DartGenerator.generateClass(className, jsonText, {
+    const generateResult = generator.DartGenerator.generateClass(className, jsonText, {
       nullable: options.nullable,
       defaultValue: options.defaultValue,
       equatable: options.equatable,
     })
+    const dartCode = generateResult.code
+    const allClassNames = generateResult.allClassNames
 
     // Generate .g file content
     const gFileContent = generator.DartGenerator.generateGFile(className, jsonText, packageName, {
@@ -412,6 +412,8 @@ async function generateDartClass(className: string[], jsonText: string, options:
       defaultValue: options.defaultValue,
       equatable: options.equatable,
     })
+
+    await updateJsonConvertContent(allClassNames, packageName, jsonDirRelative)
 
     // Create the main Dart file in the entity directory
     const fileName = `${className.toLowerCase()}.dart`
@@ -456,7 +458,7 @@ function formatJson(webview: vscode.Webview, jsonText: string): void {
 /**
  * Get the HTML content for the webview
  */
-function getWebviewContent(webview: vscode.Webview, extensionUri: vscode.Uri, libPath: string): string {
+function getWebviewContent(webview: vscode.Webview, extensionUri: vscode.Uri, entityPath: string, jsonDirPath: string): string {
   return `<!DOCTYPE html>
   <html lang="en">
   <head>
@@ -657,11 +659,9 @@ function getWebviewContent(webview: vscode.Webview, extensionUri: vscode.Uri, li
         </div>
         
         <div class="path-info">
-          Files will be generated in: <strong>${libPath}</strong>
+          Entity classes: <strong>${entityPath}</strong>
           <br>
-          Entity classes: <strong>lib/entity</strong>
-          <br>
-          Generated files: <strong>lib/generated/json</strong>
+          Generated files: <strong>${jsonDirPath}</strong>
         </div>
         
         <div class="options-row">
